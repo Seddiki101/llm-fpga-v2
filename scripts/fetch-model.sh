@@ -8,6 +8,7 @@ MODEL_DIR="/workspace/models"
 COMPILED="$MODEL_DIR/compiled/bert_base_squad.xmodel"
 ZOO_DIR="$MODEL_DIR/zoo"
 ARCH_JSON="/opt/vitis_ai/compiler/arch/DPUCADF8H/U250/arch.json"
+SEQ_LEN=384
 ZOO_PKG="pt_bert-base_SQuADv1.1_384_70.66G_3.0"
 ZOO_URL="https://www.xilinx.com/bin/public/openDownload?filename=${ZOO_PKG}.zip"
 
@@ -31,7 +32,9 @@ QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*int.xmodel" -o -name "*.xmodel" 2>/dev/
 
 if [ -z "$QUANT" ]; then
     echo "[INFO] No pre-quantized xmodel in package. Running quantization..."
-    pip install -q --only-binary :all: 'transformers==4.30.0' 'datasets' 'evaluate'
+    # Use transformers 4.26.1 — compatible with Python 3.7, torch 1.12.x,
+    # and does NOT require accelerate for Trainer (4.30+ does).
+    pip install -q --only-binary :all: 'transformers==4.26.1' 'datasets' 'evaluate' 'accelerate==0.20.1'
     [ -f "$ZOO_DIR/$ZOO_PKG/requirement.txt" ] && pip install -q -r "$ZOO_DIR/$ZOO_PKG/requirement.txt" || true
 
     # Download float model from HuggingFace if the float/ dir is empty (only .keep)
@@ -57,28 +60,24 @@ print('[OK] Float model saved to $FLOAT_DIR')
         QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
     fi
 
-    # Try 2: Call run_qa_qat.py directly with required arguments
+    # Try 2: Call run_qa.py directly with required arguments (skip _qat variant)
     if [ -z "$QUANT" ]; then
-        QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/*" -name "run_qa*.py" | head -1)
-        if [ -n "$QUANT_SCRIPT" ]; then
+        QUANT_SCRIPT="$ZOO_DIR/$ZOO_PKG/code/run_qa.py"
+        if [ -f "$QUANT_SCRIPT" ]; then
             echo "[INFO] Running zoo script directly: $QUANT_SCRIPT"
             cd "$ZOO_DIR/$ZOO_PKG"
             python3 "$QUANT_SCRIPT" \
                 --model_name_or_path "$FLOAT_DIR" \
+                --dataset_name squad \
                 --output_dir "$ZOO_DIR/$ZOO_PKG/quantized" \
+                --do_eval \
+                --per_device_eval_batch_size 1 \
+                --max_seq_length $SEQ_LEN \
                 --quant_mode test 2>&1 || true
             cd /workspace
             QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
         fi
     fi
-fi
-
-# Try 3: Fall back to the project's own quantization script
-if [ -z "$QUANT" ]; then
-    echo "[INFO] Zoo quantization did not produce an xmodel. Falling back to project quantizer..."
-    export NNDCT_PYTORCH_VERSION_CHECK=0
-    python3 /workspace/scripts/quantize.py 2>&1 || true
-    QUANT=$(find /workspace/models/quantized -name "*.xmodel" 2>/dev/null | head -1)
 fi
 
 if [ -z "$QUANT" ]; then
