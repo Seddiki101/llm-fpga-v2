@@ -2,6 +2,10 @@
 """Quantize BERT-Base SQuAD to INT8 xmodel for Vitis AI deployment."""
 
 import os, torch
+
+# Bypass pytorch-nndct strict version check (container has torch 1.12.0, nndct wants 1.12.1)
+os.environ["NNDCT_PYTORCH_VERSION_CHECK"] = "0"
+
 from transformers import BertForQuestionAnswering
 from pytorch_nndct.apis import torch_quantizer
 

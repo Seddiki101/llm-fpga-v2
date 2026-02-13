@@ -31,25 +31,53 @@ QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*int.xmodel" -o -name "*.xmodel" 2>/dev/
 
 if [ -z "$QUANT" ]; then
     echo "[INFO] No pre-quantized xmodel in package. Running quantization..."
-    # Try 1: Use the package's own quantization scripts (code/ directory)
-    QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/*" -name "run_qa*.py" | head -1)
-    if [ -n "$QUANT_SCRIPT" ]; then
-        echo "[INFO] Found zoo quantization script: $QUANT_SCRIPT"
-        pip install -q --only-binary :all: 'transformers==4.30.0' 'datasets' 'evaluate'
-        # Install any package-specific requirements
-        [ -f "$ZOO_DIR/$ZOO_PKG/requirement.txt" ] && pip install -q -r "$ZOO_DIR/$ZOO_PKG/requirement.txt" || true
+    pip install -q --only-binary :all: 'transformers==4.30.0' 'datasets' 'evaluate'
+    [ -f "$ZOO_DIR/$ZOO_PKG/requirement.txt" ] && pip install -q -r "$ZOO_DIR/$ZOO_PKG/requirement.txt" || true
+
+    # Download float model from HuggingFace if the float/ dir is empty (only .keep)
+    FLOAT_DIR="$ZOO_DIR/$ZOO_PKG/float"
+    if [ -z "$(find "$FLOAT_DIR" -name "*.bin" -o -name "*.safetensors" -o -name "*.pt" 2>/dev/null | head -1)" ]; then
+        echo "[INFO] Float model weights missing — downloading from HuggingFace..."
+        python3 -c "
+from transformers import BertForQuestionAnswering, BertTokenizer
+m = 'csarron/bert-base-uncased-squad-v1'
+BertForQuestionAnswering.from_pretrained(m).save_pretrained('$FLOAT_DIR')
+BertTokenizer.from_pretrained(m).save_pretrained('$FLOAT_DIR')
+print('[OK] Float model saved to $FLOAT_DIR')
+"
+    fi
+
+    # Try 1: Use the package's own run_quant.sh (the intended entry point)
+    if [ -f "$ZOO_DIR/$ZOO_PKG/run_quant.sh" ]; then
+        echo "[INFO] Running zoo quantization via run_quant.sh..."
         cd "$ZOO_DIR/$ZOO_PKG"
-        python3 "$QUANT_SCRIPT" --quant_mode test 2>&1 || true
+        [ -f env_setup.sh ] && source env_setup.sh || true
+        bash run_quant.sh 2>&1 || true
         cd /workspace
         QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
     fi
+
+    # Try 2: Call run_qa_qat.py directly with required arguments
+    if [ -z "$QUANT" ]; then
+        QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/*" -name "run_qa*.py" | head -1)
+        if [ -n "$QUANT_SCRIPT" ]; then
+            echo "[INFO] Running zoo script directly: $QUANT_SCRIPT"
+            cd "$ZOO_DIR/$ZOO_PKG"
+            python3 "$QUANT_SCRIPT" \
+                --model_name_or_path "$FLOAT_DIR" \
+                --output_dir "$ZOO_DIR/$ZOO_PKG/quantized" \
+                --quant_mode test 2>&1 || true
+            cd /workspace
+            QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
+        fi
+    fi
 fi
 
-# Try 2: Fall back to the project's own quantization script
+# Try 3: Fall back to the project's own quantization script
 if [ -z "$QUANT" ]; then
     echo "[INFO] Zoo quantization did not produce an xmodel. Falling back to project quantizer..."
-    pip install -q --only-binary :all: 'transformers==4.30.0'
-    python3 /workspace/scripts/quantize.py 2>&1
+    export NNDCT_PYTORCH_VERSION_CHECK=0
+    python3 /workspace/scripts/quantize.py 2>&1 || true
     QUANT=$(find /workspace/models/quantized -name "*.xmodel" 2>/dev/null | head -1)
 fi
 
