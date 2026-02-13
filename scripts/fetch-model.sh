@@ -50,45 +50,34 @@ print('[OK] Float model saved to $FLOAT_DIR')
 "
     fi
 
-    # Download SQuAD dataset to data/ dir — zoo scripts use load_from_disk(), not load_dataset()
+    # Download SQuAD dataset to data/ dir — zoo scripts use load_from_disk() with DatasetDict
     DATA_DIR="$ZOO_DIR/$ZOO_PKG/data"
-    if [ ! -f "$DATA_DIR/dataset_info.json" ]; then
+    if [ ! -d "$DATA_DIR/validation" ]; then
         echo "[INFO] SQuAD dataset missing — downloading and saving to $DATA_DIR..."
         python3 -c "
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 ds = load_dataset('squad', split='validation')
-ds.save_to_disk('$DATA_DIR')
+dd = DatasetDict({'validation': ds})
+dd.save_to_disk('$DATA_DIR')
 print('[OK] SQuAD validation set saved to $DATA_DIR')
 "
     fi
 
-    # Try 1: Use the package's own run_quant.sh (the intended entry point)
-    if [ -f "$ZOO_DIR/$ZOO_PKG/run_quant.sh" ]; then
-        echo "[INFO] Running zoo quantization via run_quant.sh..."
+    # Run run_qa.py directly (run_quant.sh uses torch.distributed.launch which needs GPUs)
+    QUANT_SCRIPT="$ZOO_DIR/$ZOO_PKG/code/run_qa.py"
+    if [ -f "$QUANT_SCRIPT" ]; then
+        echo "[INFO] Running zoo quantization: $QUANT_SCRIPT"
         cd "$ZOO_DIR/$ZOO_PKG"
-        [ -f env_setup.sh ] && source env_setup.sh || true
-        bash run_quant.sh 2>&1 || true
+        python3 "$QUANT_SCRIPT" \
+            --model_name_or_path "$FLOAT_DIR" \
+            --dataset_name "$DATA_DIR" \
+            --output_dir "$ZOO_DIR/$ZOO_PKG/quantized" \
+            --do_eval \
+            --per_device_eval_batch_size 1 \
+            --max_seq_length $SEQ_LEN \
+            --quant_mode test 2>&1 || true
         cd /workspace
         QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
-    fi
-
-    # Try 2: Call run_qa.py directly with required arguments (skip _qat variant)
-    if [ -z "$QUANT" ]; then
-        QUANT_SCRIPT="$ZOO_DIR/$ZOO_PKG/code/run_qa.py"
-        if [ -f "$QUANT_SCRIPT" ]; then
-            echo "[INFO] Running zoo script directly: $QUANT_SCRIPT"
-            cd "$ZOO_DIR/$ZOO_PKG"
-            python3 "$QUANT_SCRIPT" \
-                --model_name_or_path "$FLOAT_DIR" \
-                --dataset_name "$DATA_DIR" \
-                --output_dir "$ZOO_DIR/$ZOO_PKG/quantized" \
-                --do_eval \
-                --per_device_eval_batch_size 1 \
-                --max_seq_length $SEQ_LEN \
-                --quant_mode test 2>&1 || true
-            cd /workspace
-            QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
-        fi
     fi
 fi
 
