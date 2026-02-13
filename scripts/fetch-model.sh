@@ -50,6 +50,18 @@ print('[OK] Float model saved to $FLOAT_DIR')
 "
     fi
 
+    # Download SQuAD dataset to data/ dir — zoo scripts use load_from_disk(), not load_dataset()
+    DATA_DIR="$ZOO_DIR/$ZOO_PKG/data"
+    if [ ! -f "$DATA_DIR/dataset_info.json" ]; then
+        echo "[INFO] SQuAD dataset missing — downloading and saving to $DATA_DIR..."
+        python3 -c "
+from datasets import load_dataset
+ds = load_dataset('squad', split='validation')
+ds.save_to_disk('$DATA_DIR')
+print('[OK] SQuAD validation set saved to $DATA_DIR')
+"
+    fi
+
     # Try 1: Use the package's own run_quant.sh (the intended entry point)
     if [ -f "$ZOO_DIR/$ZOO_PKG/run_quant.sh" ]; then
         echo "[INFO] Running zoo quantization via run_quant.sh..."
@@ -68,7 +80,7 @@ print('[OK] Float model saved to $FLOAT_DIR')
             cd "$ZOO_DIR/$ZOO_PKG"
             python3 "$QUANT_SCRIPT" \
                 --model_name_or_path "$FLOAT_DIR" \
-                --dataset_name squad \
+                --dataset_name "$DATA_DIR" \
                 --output_dir "$ZOO_DIR/$ZOO_PKG/quantized" \
                 --do_eval \
                 --per_device_eval_batch_size 1 \
