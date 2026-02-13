@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FPGA-Accelerated BERT QA Chatbot Demo — Alveo U250"""
 
-import sys, time, argparse
+import os, sys, time, argparse
 import numpy as np
 
 # ----- Configuration -----
@@ -22,6 +22,10 @@ CONTEXT = (
 
 def load_fpga_runner(xmodel_path):
     """Load compiled xmodel, return a VART DPU runner."""
+    if not os.path.isfile(xmodel_path):
+        print(f"[ERROR] Compiled xmodel not found: {xmodel_path}")
+        print("       Run without --cpu first to build the model, or use --cpu mode.")
+        sys.exit(1)
     import xir, vart
     graph = xir.Graph.deserialize(xmodel_path)
     subs = graph.get_root_subgraph().toposort_child_subgraph()
@@ -37,10 +41,23 @@ def fpga_infer(runner, input_ids, attention_mask, token_type_ids):
     bufs_in = [np.zeros(t.dims, dtype=np.int8) for t in in_t]
     bufs_out = [np.zeros(t.dims, dtype=np.int8) for t in out_t]
 
-    arrays = [input_ids, attention_mask, token_type_ids]
+    # Match tensors by name — VART does not guarantee ordering
+    name_to_array = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "token_type_ids": token_type_ids,
+    }
     for i, t in enumerate(in_t):
+        tname = t.name.lower()
+        matched = None
+        for key, arr in name_to_array.items():
+            if key in tname:
+                matched = arr
+                break
+        if matched is None:
+            matched = [input_ids, attention_mask, token_type_ids][i]
         fp = t.get_attr("fix_point")
-        data = arrays[i].flatten()[: bufs_in[i].size]
+        data = matched.flatten()[: bufs_in[i].size]
         bufs_in[i].flat[: len(data)] = np.clip(data * (2 ** fp), -128, 127).astype(np.int8)
 
     job = runner.execute_async(bufs_in, bufs_out)

@@ -35,7 +35,9 @@ if [ -z "$QUANT" ]; then
     QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/*" -name "run_qa*.py" | head -1)
     if [ -n "$QUANT_SCRIPT" ]; then
         echo "[INFO] Found zoo quantization script: $QUANT_SCRIPT"
-        pip install -q --only-binary :all: 'transformers==4.30.0'
+        pip install -q --only-binary :all: 'transformers==4.30.0' 'datasets' 'evaluate'
+        # Install any package-specific requirements
+        [ -f "$ZOO_DIR/$ZOO_PKG/requirement.txt" ] && pip install -q -r "$ZOO_DIR/$ZOO_PKG/requirement.txt" || true
         cd "$ZOO_DIR/$ZOO_PKG"
         python3 "$QUANT_SCRIPT" --quant_mode test 2>&1 || true
         cd /workspace

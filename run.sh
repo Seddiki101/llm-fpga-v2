@@ -41,4 +41,4 @@ docker run --rm -it \
     -v "$SCRIPT_DIR":/workspace \
     -w /workspace \
     "$IMAGE" \
-    bash -c "source /opt/vitis_ai/conda/etc/profile.d/conda.sh && conda activate vitis-ai-pytorch && set -e && bash scripts/fetch-model.sh && python3 scripts/demo.py $MODE_FLAG"
+    bash -c "source /opt/vitis_ai/conda/etc/profile.d/conda.sh && conda activate vitis-ai-pytorch && set -e && if [ -z '$MODE_FLAG' ]; then bash scripts/fetch-model.sh; fi && python3 scripts/demo.py $MODE_FLAG"
