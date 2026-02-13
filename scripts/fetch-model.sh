@@ -31,16 +31,24 @@ QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*int.xmodel" -o -name "*.xmodel" 2>/dev/
 
 if [ -z "$QUANT" ]; then
     echo "[INFO] No pre-quantized xmodel in package. Running quantization..."
-    # Model zoo provides code/ and float/ dirs with XIR-compatible model + weights.
-    # Use the package's own quantization if available.
-    QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/test/*" -name "*.py" | head -1)
+    # Try 1: Use the package's own quantization scripts (code/ directory)
+    QUANT_SCRIPT=$(find "$ZOO_DIR/$ZOO_PKG" -path "*/code/*" -name "run_qa*.py" | head -1)
     if [ -n "$QUANT_SCRIPT" ]; then
+        echo "[INFO] Found zoo quantization script: $QUANT_SCRIPT"
         pip install -q --only-binary :all: 'transformers==4.30.0'
         cd "$ZOO_DIR/$ZOO_PKG"
         python3 "$QUANT_SCRIPT" --quant_mode test 2>&1 || true
         cd /workspace
         QUANT=$(find "$ZOO_DIR/$ZOO_PKG" -name "*.xmodel" 2>/dev/null | head -1)
     fi
+fi
+
+# Try 2: Fall back to the project's own quantization script
+if [ -z "$QUANT" ]; then
+    echo "[INFO] Zoo quantization did not produce an xmodel. Falling back to project quantizer..."
+    pip install -q --only-binary :all: 'transformers==4.30.0'
+    python3 /workspace/scripts/quantize.py 2>&1
+    QUANT=$(find /workspace/models/quantized -name "*.xmodel" 2>/dev/null | head -1)
 fi
 
 if [ -z "$QUANT" ]; then

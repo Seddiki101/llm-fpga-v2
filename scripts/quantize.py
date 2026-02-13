@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Quantize BERT-Large SQuAD to INT8 xmodel for Vitis AI deployment."""
+"""Quantize BERT-Base SQuAD to INT8 xmodel for Vitis AI deployment."""
 
 import os, torch
 from transformers import BertForQuestionAnswering
 from pytorch_nndct.apis import torch_quantizer
 
-MODEL_NAME = "bert-large-uncased-whole-word-masking-finetuned-squad"
+MODEL_NAME = "csarron/bert-base-uncased-squad-v1"
 SEQ_LEN = 384
 OUTPUT_DIR = "/workspace/models/quantized"
 CALIB_STEPS = 20
@@ -38,7 +38,7 @@ class BertQAWrapper(torch.nn.Module):
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 1. Download pre-trained model from HuggingFace
-print(f"[DOWNLOAD] {MODEL_NAME} from HuggingFace (~1.3 GB)...")
+print(f"[DOWNLOAD] {MODEL_NAME} from HuggingFace...")
 hf_model = BertForQuestionAnswering.from_pretrained(MODEL_NAME)
 hf_model.eval()
 
